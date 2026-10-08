@@ -1,0 +1,289 @@
+openapi: 3.0.3
+info:
+  title: Reading List API
+  version: 1.0.0
+  description: |
+    A small REST API for a personal reading list. Data is kept in memory only and is
+    lost when the server stops. It stores no personal data: just book titles, authors,
+    a reading status and an optional rating.
+
+    Every error uses the same shape: `{ "error": { "code", "message", "details"? } }`.
+servers:
+  - url: http://127.0.0.1:3000
+tags:
+  - name: Books
+  - name: Health
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Check that the API is running
+      responses:
+        '200':
+          description: The API is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: ok }
+  /books:
+    get:
+      tags: [Books]
+      operationId: listBooks
+      summary: List books, with optional filtering and pagination
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/Status' }
+        - name: q
+          in: query
+          description: Case-insensitive text to find in the title or author (max 100 characters).
+          schema: { type: string, maxLength: 100 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: A page of books, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Book' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '400': { $ref: '#/components/responses/InvalidQuery' }
+    post:
+      tags: [Books]
+      operationId: createBook
+      summary: Add a book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookCreate' }
+            example: { title: The Example Atlas, author: A. Writer }
+      responses:
+        '201':
+          description: The book was created.
+          headers:
+            Location:
+              description: Path of the new book.
+              schema: { type: string, example: /books/3f2b8c1e-6a4d-4c0e-9d51-0a7e2b9c4f10 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookResponse' }
+        '400': { $ref: '#/components/responses/InvalidJson' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /books/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Books]
+      operationId: getBook
+      summary: Get one book
+      responses:
+        '200':
+          description: The book.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Books]
+      operationId: replaceBook
+      summary: Replace a book (full update)
+      description: |
+        Send every field except `rating`. Omitting `rating` sets it back to `null`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookReplace' }
+            example: { title: The Example Atlas, author: A. Writer, status: finished, rating: 5 }
+      responses:
+        '200':
+          description: The updated book.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookResponse' }
+        '400': { $ref: '#/components/responses/InvalidJson' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    patch:
+      tags: [Books]
+      operationId: updateBook
+      summary: Update some fields of a book (partial update)
+      description: Send at least one field. Fields you leave out are unchanged. The combined result must be valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookPatch' }
+            example: { status: finished, rating: 4 }
+      responses:
+        '200':
+          description: The updated book.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookResponse' }
+        '400': { $ref: '#/components/responses/InvalidJson' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Books]
+      operationId: deleteBook
+      summary: Delete a book
+      responses:
+        '204':
+          description: Deleted. No body.
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  schemas:
+    Status:
+      type: string
+      enum: [to-read, reading, finished]
+    Rating:
+      type: integer
+      minimum: 1
+      maximum: 5
+      nullable: true
+      description: Only allowed when status is `finished`.
+    Book:
+      type: object
+      required: [id, title, author, status, rating, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 100 }
+        status: { $ref: '#/components/schemas/Status' }
+        rating: { $ref: '#/components/schemas/Rating' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    BookResponse:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/Book' }
+    BookCreate:
+      type: object
+      additionalProperties: false
+      required: [title, author]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 100 }
+        status: { allOf: [{ $ref: '#/components/schemas/Status' }], default: to-read }
+        rating: { $ref: '#/components/schemas/Rating' }
+    BookReplace:
+      type: object
+      additionalProperties: false
+      required: [title, author, status]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 100 }
+        status: { $ref: '#/components/schemas/Status' }
+        rating: { $ref: '#/components/schemas/Rating' }
+    BookPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 100 }
+        status: { $ref: '#/components/schemas/Status' }
+        rating: { $ref: '#/components/schemas/Rating' }
+    ListMeta:
+      type: object
+      properties:
+        total: { type: integer, description: Number of books matching the filters. }
+        limit: { type: integer }
+        offset: { type: integer }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+  responses:
+    InvalidJson:
+      description: The body is empty or is not valid JSON (`INVALID_JSON`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: INVALID_JSON, message: The request body is not valid JSON. } }
+    InvalidQuery:
+      description: A query parameter is invalid (`INVALID_QUERY`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: INVALID_QUERY
+              message: One or more query parameters are invalid.
+              details: [{ field: limit, message: limit must be a whole number from 1 to 100 }]
+    NotFound:
+      description: No book has that id (`NOT_FOUND`). Malformed ids get the same response.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: NOT_FOUND, message: No book exists with that id. } }
+    Conflict:
+      description: A book with the same title and author already exists (`CONFLICT`). Case and surrounding spaces are ignored.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: CONFLICT, message: A book with the same title and author already exists. } }
+    PayloadTooLarge:
+      description: The body is larger than 10,000 bytes (`PAYLOAD_TOO_LARGE`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMediaType:
+      description: Content-Type was not `application/json` (`UNSUPPORTED_MEDIA_TYPE`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: The JSON is well formed but breaks a rule (`VALIDATION_ERROR`). All problems are listed in `details`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: The request body failed validation.
+              details:
+                - { field: title, message: title is required }
+                - { field: status, message: 'status must be one of: to-read, reading, finished' }

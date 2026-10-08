@@ -1,0 +1,13 @@
+{
+  "name": "reading-list-api",
+  "version": "1.0.0",
+  "description": "A small REST API for a reading list: in-memory data, input validation, consistent errors, OpenAPI spec and tests. No dependencies.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node src/server.js",
+    "demo": "node src/server.js --seed",
+    "test": "node --test"
+  },
+  "license": "MIT"
+}
